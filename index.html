@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CyberZone</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="cyber-bg min-h-screen text-white">
+
+    <header class="p-6 container mx-auto">
+        <div class="glass-panel p-6 rounded-[2rem] flex flex-col lg:flex-row justify-between items-center gap-6">
+            <div class="text-3xl font-black italic text-blue-500 tracking-tighter">CYBERZONE</div>
+            
+            <div class="flex flex-wrap gap-4 justify-center">
+                <div class="flex items-center bg-white/5 border border-white/10 rounded-2xl px-4 py-2">
+                    <span class="text-xs text-gray-400 ml-2">سعر الساعة:</span>
+                    <input type="number" id="global-price" value="25000" onchange="updateAllPrices()" class="bg-transparent w-20 font-bold outline-none text-blue-400">
+                    <span class="text-xs text-gray-400 mr-1">ل.س</span>
+                </div>
+                
+                <button onclick="addNewDevice()" class="bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-2xl font-bold flex items-center gap-2 transition-all">
+                    <i data-lucide="plus"></i> إضافة جهاز
+                </button>
+            </div>
+
+            <div class="flex gap-8">
+                <div class="text-center">
+                    <span class="block text-[10px] text-gray-500 uppercase">إجمالي الدخل</span>
+                    <span id="stat-revenue" class="text-xl font-black text-green-500">0</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="container mx-auto px-6 grid grid-cols-1 xl:grid-cols-3 gap-8 pb-10">
+        <div class="xl:col-span-2">
+            <h2 class="text-xl font-black mb-6 flex items-center gap-2">
+                <i data-lucide="monitor" class="text-blue-500"></i> حالة الأجهزة
+            </h2>
+            <div id="devices-grid" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                </div>
+        </div>
+
+        <div class="xl:col-span-1">
+            <h2 class="text-xl font-black mb-6 flex items-center gap-2">
+                <i data-lucide="list-ordered" class="text-purple-500"></i> الحجوزات النشطة
+            </h2>
+            <div id="reservations-list" class="space-y-4">
+                </div>
+        </div>
+    </main>
+
+    <div id="booking-modal" class="fixed inset-0 bg-black/90 backdrop-blur-xl z-50 hidden items-center justify-center p-4">
+        <div class="glass-panel p-8 rounded-[2.5rem] max-w-md w-full border border-blue-500/30">
+            <h3 id="modal-device-name" class="text-2xl font-black mb-6 text-center italic"></h3>
+            <div class="space-y-4">
+                <input type="text" id="player-name" placeholder="اسم اللاعب..." class="w-full bg-white/5 border border-white/10 p-4 rounded-2xl outline-none focus:border-blue-500 font-bold">
+                <select id="hours-count" onchange="calculateBooking()" class="w-full bg-white/5 border border-white/10 p-4 rounded-2xl outline-none font-bold">
+                    <option value="1">ساعة واحدة</option>
+                    <option value="2">ساعتين</option>
+                    <option value="3">3 ساعات</option>
+                    <option value="5">5 ساعات</option>
+                </select>
+                <div class="p-4 bg-blue-500/10 rounded-2xl text-center border border-blue-500/20">
+                    <span id="total-price-display" class="text-2xl font-black">0</span> ل.س
+                </div>
+                <div class="flex gap-4">
+                    <button onclick="confirmBooking()" class="flex-[2] bg-blue-600 py-4 rounded-2xl font-black">تثبيت الحجز</button>
+                    <button onclick="closeModal()" class="flex-1 bg-white/10 py-4 rounded-2xl font-bold">إلغاء</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
