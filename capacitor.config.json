@@ -1,0 +1,16 @@
+{
+  "appId": "com.momar5413.cyberzone",
+  "appName": "CyberZone",
+  "webDir": "dist",
+  "backgroundColor": "#141518",
+  "android": {
+    "backgroundColor": "#141518"
+  },
+  "plugins": {
+    "SystemBars": {
+      "insetsHandling": "native",
+      "initialViewportFitValueHint": "cover",
+      "style": "DARK"
+    }
+  }
+}

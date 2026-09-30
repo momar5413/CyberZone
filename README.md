@@ -81,6 +81,34 @@ python3 -m http.server 8080
 ### Vercel
 استورد المستودع من [vercel.com/new](https://vercel.com/new) واختر **Other** كإطار عمل دون أمر بناء.
 
+## تطبيقات الموبايل وسطح المكتب
+
+نفس الواجهة مغلّفة كتطبيقات حقيقية، وكلها تُبنى من هذا المستودع:
+
+| المنصة | التقنية | الملف |
+|---|---|---|
+| أندرويد | [Capacitor](https://capacitorjs.com) | `CyberZone-android.apk` |
+| ويندوز 10 و11 | [Tauri](https://tauri.app) | `CyberZone_x.y.z_x64-setup.exe` |
+| ماك (Intel وApple Silicon) | Tauri | `CyberZone_x.y.z_universal.dmg` |
+| لينكس | Tauri | `.AppImage` و`.deb` |
+
+**التنزيل:** عند كل دمج في `main` يبني GitHub Actions كل الملفات تلقائياً وينشرها في صفحة **Releases** بالمستودع.
+
+داخل التطبيقات:
+- تعمل دون إنترنت، والخطوط مضمّنة.
+- «تصدير CSV» و«نسخة احتياطية» تفتح نافذة الحفظ على الكمبيوتر، وقائمة المشاركة على أندرويد (حفظ في الملفات، Drive، واتساب…).
+- بيانات كل جهاز محفوظة عليه وحده. انقلها بين الأجهزة بالنسخة الاحتياطية.
+
+### البناء محلياً
+
+```bash
+npm install
+npm run android:apk      # يحتاج JDK 21 وAndroid SDK — الناتج في android/app/build/outputs/apk/debug/
+npm run android:open     # فتح المشروع في Android Studio
+npm run desktop:dev      # تشغيل برنامج سطح المكتب للتجربة (يحتاج Rust)
+npm run desktop:build    # بناء برنامج التثبيت للنظام الحالي
+```
+
 ## أين تُحفظ البيانات؟
 
 تُحفظ كل البيانات في متصفح الجهاز نفسه (`localStorage`)، ولا تُرسل إلى أي خادم. هذا يعني:
@@ -106,6 +134,13 @@ assets/js/settings.js   الإعدادات ومعالج تجهيز الصالة
 assets/js/actions.js    النوافذ والعمليات (مع التراجع)
 assets/js/cash.js       الصندوق والورديات والمصاريف
 assets/js/app.js        النواة: التنقل، المؤقت الحي، التنبيهات
+assets/js/native.js     التكامل مع تطبيق أندرويد وبرنامج سطح المكتب
+assets/css/fonts.css    الخطوط المضمّنة (assets/fonts)
+scripts/build-web.mjs   تجهيز الواجهة داخل dist/ للتطبيقات
+android/                مشروع أندرويد (Capacitor)
+src-tauri/              برنامج سطح المكتب (Tauri)
+resources/              صور الأيقونة وشاشة البدء للتطبيقات
+.github/workflows/      بناء التطبيقات ونشرها تلقائياً
 tests/billing.test.js   اختبارات محرّك الحساب
 ```
 

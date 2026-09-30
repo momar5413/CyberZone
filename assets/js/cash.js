@@ -215,7 +215,7 @@ function openShiftReport(id) {
     title: 'تقرير الوردية',
     sub: fmtDate(sh.openedAt, true),
     body: shiftReportHtml(sh),
-    foot: (isFramed() ? '' : '<button type="button" class="btn btn-primary" data-action="shift-print" data-id="' + sh.id + '">' + icon('printer', 'ic-sm') + 'طباعة</button>') +
+    foot: (!canPrint() ? '' : '<button type="button" class="btn btn-primary" data-action="shift-print" data-id="' + sh.id + '">' + icon('printer', 'ic-sm') + 'طباعة</button>') +
       '<button type="button" class="btn" data-action="modal-close">إغلاق</button>'
   });
 }

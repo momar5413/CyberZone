@@ -987,8 +987,8 @@ function openReceipt(recId) {
     title: 'إيصال #' + r.no,
     sub: fmtDate(r.endedAt, true) + ' · ' + fmtTime(r.endedAt),
     body: receiptHtml(r),
-    foot: (isFramed() ? '' : '<button type="button" class="btn btn-primary" data-action="receipt-print" data-id="' + r.id + '">' + icon('printer', 'ic-sm') + 'طباعة</button>') +
-      '<button type="button" class="btn' + (isFramed() ? ' btn-primary' : '') + '" data-action="receipt-copy" data-id="' + r.id + '">' + icon('copy', 'ic-sm') + 'نسخ كنص</button>' +
+    foot: (!canPrint() ? '' : '<button type="button" class="btn btn-primary" data-action="receipt-print" data-id="' + r.id + '">' + icon('printer', 'ic-sm') + 'طباعة</button>') +
+      '<button type="button" class="btn' + (!canPrint() ? ' btn-primary' : '') + '" data-action="receipt-copy" data-id="' + r.id + '">' + icon('copy', 'ic-sm') + 'نسخ كنص</button>' +
       '<button type="button" class="btn" data-action="modal-close">إغلاق</button>'
   });
 }
