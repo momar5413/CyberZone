@@ -70,9 +70,13 @@ function emptyState() {
     products: defaultProducts(),
     reservations: [],
     history: [],
-    cart: []
+    cart: [],
+    shifts: [],
+    cashMoves: []
   };
 }
+
+const EXPENSE_PRESETS = ['أمبيرات', 'مازوت للمولدة', 'إنترنت', 'ثلج', 'ضيافة', 'تنظيف', 'صيانة', 'بضاعة للبوفيه'];
 
 /* ---------- الحفظ والتحميل ---------- */
 
@@ -110,7 +114,7 @@ function normalizeState(s) {
   out.version = SCHEMA_VERSION;
   out.meta = Object.assign({}, base.meta, s.meta);
   out.settings = Object.assign({}, base.settings, s.settings);
-  ['types', 'devices', 'sessions', 'products', 'reservations', 'history', 'cart'].forEach(function (k) {
+  ['types', 'devices', 'sessions', 'products', 'reservations', 'history', 'cart', 'shifts', 'cashMoves'].forEach(function (k) {
     if (!Array.isArray(out[k])) out[k] = base[k];
   });
   out.sessions.forEach(function (x) {
@@ -294,7 +298,38 @@ function buildDemoState(now) {
     { id: uid() + 'r4', name: 'فراس', phone: '0955 000 777', deviceId: 'd-pc-2', start: now - 26 * 3600000, minutes: 60, note: '', status: 'done', createdAt: now - 50 * 3600000 },
     { id: uid() + 'r5', name: 'نور', phone: '', deviceId: 'd-ps4-1', start: now - 22 * 3600000, minutes: 60, note: '', status: 'noshow', createdAt: now - 30 * 3600000 }
   ];
+  seedDemoShifts(s, now, rnd, pick);
   return s;
+}
+
+// ورديات تجريبية: وردية يومية من 10 صباحاً حتى 2 بعد منتصف الليل، والحالية مفتوحة
+function seedDemoShifts(s, now, rnd, pick) {
+  const H = 3600000;
+  let current = startOfDay(now) + 10 * H;
+  if (current > now - 30 * Billing.MIN) current = addDays(current, -1);
+  const costs = { 'أمبيرات': 60000, 'مازوت للمولدة': 45000, 'إنترنت': 35000, 'ثلج': 10000, 'ضيافة': 8000, 'تنظيف': 15000, 'صيانة': 25000, 'بضاعة للبوفيه': 120000 };
+  const addMoves = function (from, to) {
+    const n = 1 + Math.floor(rnd() * 2);
+    for (let i = 0; i < n; i++) {
+      const note = pick(EXPENSE_PRESETS);
+      const at = Math.min(to - 5 * Billing.MIN, from + Math.floor(rnd() * (to - from)));
+      s.cashMoves.push({ id: uid() + 'e' + i, at: at, kind: 'expense', amount: costs[note], note: note });
+    }
+    if (rnd() < 0.3) s.cashMoves.push({ id: uid() + 'w', at: to - 40 * Billing.MIN, kind: 'withdraw', amount: 200000, note: 'سحب صاحب الصالة' });
+  };
+  for (let k = 7; k >= 1; k--) {
+    const from = addDays(current, -k);
+    const to = from + 16 * H;
+    addMoves(from, to);
+    const recs = s.history.filter(function (r) { return r.endedAt >= from && r.endedAt < to; });
+    const moves = s.cashMoves.filter(function (m) { return m.at >= from && m.at < to; });
+    const d = Billing.drawer(100000, recs, moves);
+    const diff = pick([0, 0, 0, 0, -2000, 500, -1000]);
+    s.shifts.push({ id: uid() + 'sh' + k, openedAt: from, closedAt: to, opening: 100000, expected: d.expected, counted: d.expected + diff, note: diff ? 'فرق بسيط في العد' : '' });
+  }
+  addMoves(current, now);
+  s.shifts.push({ id: uid() + 'sh0', openedAt: current, closedAt: null, opening: 100000, expected: null, counted: null, note: '' });
+  s.cashMoves.sort(function (a, b) { return a.at - b.at; });
 }
 
 // تفريغ العمليات مع إبقاء الأجهزة والمنتجات والإعدادات
@@ -305,6 +340,8 @@ function clearOperations(s) {
   s.cart = [];
   s.meta.demo = false;
   s.meta.receiptSeq = 1000;
+  s.shifts = [];
+  s.cashMoves = [];
   s.devices.forEach(function (d) { d.maintenance = false; d.note = ''; });
   return s;
 }

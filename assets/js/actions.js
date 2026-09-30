@@ -3,6 +3,20 @@
 
 const DURATIONS = [[0, 'وقت مفتوح', 'حسب الاستخدام'], [30, '30 د', ''], [60, 'ساعة', ''], [90, 'ساعة ونصف', ''], [120, 'ساعتان', ''], [180, '3 ساعات', ''], ['c', 'مخصص', 'بالدقائق']];
 
+function ledMoney(n) {
+  return fmtNum(n) + '<small style="font:600 12px var(--font-ui);color:var(--fg-3);margin-inline-start:4px">' + esc(cur()) + '</small>';
+}
+
+// أزرار المبالغ السريعة: المبلغ نفسه ثم أقرب أوراق نقدية أعلى منه
+function quickCashHtml(total) {
+  const seen = new Set();
+  const opts = [total];
+  [5000, 10000, 50000].forEach(function (b) { opts.push(Math.ceil(total / b) * b); });
+  return opts.filter(function (v) { if (v <= 0 || seen.has(v)) return false; seen.add(v); return true; }).map(function (v, i) {
+    return '<button type="button" class="chip" data-action="paid-set" data-value="' + v + '">' + (i === 0 ? 'المبلغ نفسه' : fmtNum(v)) + '</button>';
+  }).join('');
+}
+
 function refresh() {
   if (ui.view === 'floor' && $('#stations')) refreshFloor();
   else renderView();
@@ -90,12 +104,12 @@ function openStartModal(deviceId, preset) {
         const est = Billing.timeCharge({ rate: rate, segments: [], runSince: null, plannedMin: planned }, now, state.settings);
         $('#est-label').textContent = 'التكلفة المتوقعة لـ ' + fmtMinutes(planned);
         $('#est-note').textContent = 'تنتهي الساعة ' + fmtTime(now + planned * Billing.MIN) + ' · ' + fmtNum(rate) + ' ' + cur() + '/ساعة';
-        $('#est-value').textContent = money(est.amount);
+        $('#est-value').innerHTML = ledMoney(est.amount);
       } else {
         const minCost = Billing.timeCharge({ rate: rate, segments: [], runSince: null, plannedMin: null }, now, state.settings);
         $('#est-label').textContent = 'السعر بالساعة';
         $('#est-note').textContent = 'يُحسب حسب الوقت الفعلي' + (state.settings.minMinutes ? ' · الحد الأدنى ' + state.settings.minMinutes + ' د = ' + money(minCost.amount) : '');
-        $('#est-value').textContent = money(rate);
+        $('#est-value').innerHTML = ledMoney(rate);
       }
       const until = now + (planned || 180) * Billing.MIN;
       const clash = state.reservations.filter(function (r) {
@@ -109,13 +123,15 @@ function openStartModal(deviceId, preset) {
     onSubmit: function () {
       const dur = pickValue('dur');
       const planned = dur === 'c' ? Math.max(5, Math.round(mnum('f-custom', 0))) : Number(dur) || 0;
-      startSession(d, {
+      withUndo(function () {
+        startSession(d, {
         player: mval('f-player').trim(),
         phone: mval('f-phone').trim(),
         mode: multi ? pickValue('mode') : 'single',
         planned: planned,
         reservationId: preset.reservationId
-      });
+        });
+      }, 'بدأت جلسة ' + d.name + (planned ? ' لمدة ' + fmtMinutes(planned) : ' بوقت مفتوح'));
     }
   });
 }
@@ -147,8 +163,18 @@ function startSession(d, o) {
   closeModal();
   refresh();
   beep('ok');
-  toast('بدأت جلسة ' + d.name + ' — ' + s.player + (s.plannedMin ? ' لمدة ' + fmtMinutes(s.plannedMin) : ' (وقت مفتوح)'));
   flashStation(d.id);
+}
+
+// البدء السريع من مفاتيح البطاقة: لاعب «زائر» ونمط فردي، مع تعديل أو تراجع من الإشعار
+function quickStart(deviceId, minutes) {
+  const d = deviceById(deviceId);
+  if (!d || d.maintenance || sessionOfDevice(d.id)) return;
+  let sid = null;
+  withUndo(function () {
+    startSession(d, { player: '', mode: 'single', planned: minutes || 0 });
+    sid = sessionOfDevice(d.id).id;
+  }, 'بدأت ' + d.name + (minutes ? ' لمدة ' + fmtMinutes(minutes) : ' بوقت مفتوح'), [{ label: 'الاسم والنمط', run: function () { openSessionEdit(sid); } }]);
 }
 
 function flashStation(deviceId) {
@@ -174,7 +200,7 @@ function openCheckout(sessionId) {
     title: 'إنهاء وحساب · ' + bdi(d ? d.name : ''),
     sub: esc(s.player) + (s.phone ? ' · <span dir="ltr">' + esc(s.phone) + '</span>' : ''),
     body:
-      '<div class="grid-2" style="gap:10px">' +
+      '<div class="info-grid">' +
         infoCell('البداية', fmtTime(s.startedAt)) +
         infoCell('النهاية', fmtTime(at)) +
         infoCell('مدة اللعب الفعلية', fmtDur(elapsed) + ' <span class="faint hud" style="font-size:12px">' + fmtClockDur(elapsed) + '</span>') +
@@ -188,6 +214,7 @@ function openCheckout(sessionId) {
         fieldHtml('f-discount', 'خصم', moneyInput('f-discount', '', '0')) +
         fieldHtml('f-paid', 'المبلغ المدفوع', moneyInput('f-paid', '')) +
       '</div>' +
+      '<div class="quick-cash" id="quick-cash"></div>' +
       '<div class="stack-sm"><span class="field-label">طريقة الدفع</span><div class="seg seg-block" role="group">' +
         '<button type="button" data-pick="pay" data-value="cash" aria-pressed="true">' + icon('banknote', 'ic-sm') + 'نقدي</button>' +
         '<button type="button" data-pick="pay" data-value="card" aria-pressed="false">' + icon('wallet', 'ic-sm') + 'دفع إلكتروني</button>' +
@@ -204,15 +231,16 @@ function openCheckout(sessionId) {
       const total = t.total - discount;
       if (!paidTouched) $('#f-paid').value = total;
       const paid = mval('f-paid') === '' ? total : Math.round(mnum('f-paid', total));
+      if (!calc || calc.total !== total) $('#quick-cash').innerHTML = quickCashHtml(total);
       calc = { t: t, discount: discount, total: total, paid: paid, ignore: ignore };
       const change = paid - total;
       $('#co-sum').innerHTML =
         '<div class="sum-row"><span>أجرة الوقت <span class="faint">(' + t.minutes + ' د محتسبة × ' + fmtNum(t.avgRate) + '/ساعة)</span></span><span>' + fmtNum(t.amount) + '</span></div>' +
         (t.items ? '<div class="sum-row"><span>البوفيه</span><span>' + fmtNum(t.items) + '</span></div>' : '') +
         (discount ? '<div class="sum-row discount"><span>الخصم</span><span dir="ltr">−' + fmtNum(discount) + '</span></div>' : '') +
-        '<div class="sum-row total"><span>الإجمالي</span><span>' + money(total) + '</span></div>' +
-        (change > 0 ? '<div class="sum-row"><span>الباقي للزبون</span><span style="color:var(--ok)">' + money(change) + '</span></div>' : '') +
-        (change < 0 ? '<div class="sum-row"><span>ناقص</span><span style="color:var(--danger)">' + money(-change) + '</span></div>' : '');
+        '<div class="sum-row total"><span>الإجمالي</span><span>' + ledMoney(total) + '</span></div>' +
+        (change > 0 ? '<div class="sum-row"><span>الباقي للزبون</span><span style="color:var(--go)">' + money(change) + '</span></div>' : '') +
+        (change < 0 ? '<div class="sum-row"><span>ناقص</span><span style="color:var(--red)">' + money(-change) + '</span></div>' : '');
       setError('co-err', '');
     },
     onSubmit: function () {
@@ -228,7 +256,7 @@ function openCheckout(sessionId) {
 }
 
 function infoCell(label, value) {
-  return '<div style="padding:10px 12px;border-radius:12px;background:var(--surface-2);min-width:0"><div class="faint" style="font-size:12px;font-weight:700">' + label + '</div><div style="font-weight:800">' + value + '</div></div>';
+  return '<div class="info-cell"><span>' + label + '</span><b>' + value + '</b></div>';
 }
 
 function finishSession(s, at, calc, method, note) {
@@ -236,7 +264,7 @@ function finishSession(s, at, calc, method, note) {
   const t = typeOf(d || {});
   const rec = {
     id: uid(),
-    no: ++state.meta.receiptSeq,
+    no: state.meta.receiptSeq + 1,
     kind: 'session',
     deviceId: s.deviceId,
     deviceName: d ? d.name : 'جهاز محذوف',
@@ -259,17 +287,19 @@ function finishSession(s, at, calc, method, note) {
     method: method || 'cash',
     note: note || ''
   };
-  state.history.push(rec);
-  state.sessions = state.sessions.filter(function (x) { return x.id !== s.id; });
-  if (s.reservationId) {
-    const r = resvById(s.reservationId);
-    if (r) r.status = 'done';
-  }
-  persist();
-  closeModal();
-  refresh();
-  beep('ok');
-  toast('انتهت جلسة ' + rec.deviceName + ' — الإجمالي ' + money(rec.total), { action: { label: 'الإيصال', run: function () { openReceipt(rec.id); } }, timeout: 7000 });
+  withUndo(function () {
+    state.meta.receiptSeq = rec.no;
+    state.history.push(rec);
+    state.sessions = state.sessions.filter(function (x) { return x.id !== s.id; });
+    if (s.reservationId) {
+      const r = resvById(s.reservationId);
+      if (r) r.status = 'done';
+    }
+    persist();
+    closeModal();
+    refresh();
+    beep('ok');
+  }, 'انتهت جلسة ' + rec.deviceName + ' — ' + money(rec.total), [{ label: 'الإيصال', run: function () { openReceipt(rec.id); } }]);
 }
 
 /* =================== طلبات البوفيه لجلسة =================== */
@@ -308,11 +338,11 @@ function renderOrderBody() {
     }).join('') + '</div>' : '<div class="empty">لا منتجات في هذه الفئة</div>') +
     '<div class="stack-sm"><span class="field-label">على الحساب</span>' +
     (s.items.length ? '<div class="cart-lines">' + s.items.map(function (i) {
-      return '<div class="cart-line"><div class="list-main"><div class="list-title">' + esc(i.name) + '</div><div class="list-sub num">' + fmtNum(i.price) + ' × ' + i.qty + '</div></div>' +
+      return '<div class="cart-line"><div class="item-main"><div class="item-title">' + esc(i.name) + '</div><div class="item-sub num">' + fmtNum(i.price) + ' × ' + i.qty + '</div></div>' +
         '<div class="qty"><button type="button" class="btn btn-icon btn-sm" data-action="order-dec" data-id="' + i.productId + '" aria-label="إنقاص">' + icon('minus', 'ic-sm') + '</button><b>' + i.qty + '</b>' +
         '<button type="button" class="btn btn-icon btn-sm" data-action="order-inc" data-id="' + i.productId + '" aria-label="زيادة">' + icon('plus', 'ic-sm') + '</button></div>' +
         '<b class="num" style="min-width:70px;text-align:end">' + fmtNum(i.price * i.qty) + '</b></div>';
-    }).join('') + '</div><div class="sum-rows"><div class="sum-row total"><span>مجموع الطلبات</span><span>' + money(Billing.itemsTotal(s.items)) + '</span></div></div>'
+    }).join('') + '</div><div class="sum-rows"><div class="sum-row total"><span>مجموع الطلبات</span><span>' + ledMoney(Billing.itemsTotal(s.items)) + '</span></div></div>'
       : '<div class="hint">لا طلبات بعد. اضغط على منتج لإضافته.</div>') +
     '</div>';
 }
@@ -428,7 +458,7 @@ function openSessionMenu(sessionId) {
       '<button type="button" class="menu-item" data-action="session-edit" data-session="' + s.id + '">' + icon('pencil') + '<span>تعديل بيانات الجلسة<small>الاسم، الهاتف' + (hasMulti(d || {}) ? '، نمط اللعب (فردي/زوجي)' : '') + '</small></span></button>' +
       '<button type="button" class="menu-item" data-action="session-transfer" data-session="' + s.id + '">' + icon('swap') + '<span>نقل إلى جهاز آخر<small>يُحفظ الوقت السابق بسعره ويُكمل بسعر الجهاز الجديد</small></span></button>' +
       '<button type="button" class="menu-item" data-action="order" data-session="' + s.id + '">' + icon('coffee') + '<span>طلبات البوفيه<small>' + (s.items.length ? s.items.length + ' صنف على الحساب' : 'لا طلبات بعد') + '</small></span></button>' +
-      '<button type="button" class="menu-item danger" data-action="session-cancel" data-session="' + s.id + '">' + icon('trash') + '<span>إلغاء الجلسة دون حساب<small>للجلسات المفتوحة بالخطأ؛ تُعاد الطلبات إلى المخزون</small></span></button>' +
+      '<button type="button" class="menu-item danger" data-action="session-cancel" data-session="' + s.id + '">' + icon('trash') + '<span>إلغاء الجلسة دون حساب<small>للجلسات المفتوحة بالخطأ. تُعاد الطلبات إلى المخزون ويمكن التراجع</small></span></button>' +
     '</div>'
   });
 }
@@ -503,12 +533,7 @@ function cancelSession(sessionId) {
   const s = sessionById(sessionId);
   if (!s) return;
   const d = deviceById(s.deviceId);
-  askConfirm({
-    title: 'إلغاء الجلسة؟',
-    message: 'ستُحذف جلسة <b>' + esc(s.player) + '</b> على ' + bdi(d ? d.name : '') + ' دون تسجيل أي مبلغ، وتُعاد طلباتها إلى المخزون. لا يمكن التراجع.',
-    confirm: 'إلغاء الجلسة',
-    danger: true
-  }, function () {
+  withUndo(function () {
     s.items.forEach(function (i) { returnStock(i.productId, i.qty); });
     state.sessions = state.sessions.filter(function (x) { return x.id !== s.id; });
     if (s.reservationId) {
@@ -516,9 +541,9 @@ function cancelSession(sessionId) {
       if (r) r.status = 'booked';
     }
     persist();
+    closeModal();
     refresh();
-    toast('أُلغيت الجلسة', { type: 'info' });
-  });
+  }, 'أُلغيت جلسة ' + (d ? d.name : '') + ' دون حساب');
 }
 
 /* =================== الأجهزة =================== */
@@ -598,10 +623,11 @@ function openDeviceMenu(deviceId) {
     title: bdi(d.name),
     sub: esc(typeOf(d).name) + ' · ' + money(rateOf(d, 'single')) + '/ساعة',
     body: '<div class="menu-list">' +
+      (busy || d.maintenance ? '' : '<button type="button" class="menu-item" data-action="start-session" data-device="' + esc(d.id) + '">' + icon('play') + '<span>بدء جلسة بخيارات<small>اسم اللاعب، فردي أو زوجي، مدة مخصصة</small></span></button>') +
       '<button type="button" class="menu-item" data-action="device-edit" data-device="' + esc(d.id) + '">' + icon('pencil') + '<span>تعديل الجهاز<small>الاسم، النوع، السعر الخاص</small></span></button>' +
       '<button type="button" class="menu-item" data-action="resv-new" data-device="' + esc(d.id) + '">' + icon('calendarPlus') + '<span>حجز هذا الجهاز<small>لموعد لاحق</small></span></button>' +
       (busy ? '' : '<button type="button" class="menu-item" data-action="maint-toggle" data-device="' + esc(d.id) + '">' + icon('wrench') + '<span>' + (d.maintenance ? 'إعادة للخدمة' : 'وضع الصيانة') + '<small>' + (d.maintenance ? 'يعود الجهاز متاحاً للجلسات' : 'يُخفى من الأجهزة المتاحة حتى إصلاحه') + '</small></span></button>') +
-      '<button type="button" class="menu-item danger" data-action="device-delete" data-device="' + esc(d.id) + '"' + (busy ? ' disabled' : '') + '>' + icon('trash') + '<span>حذف الجهاز<small>' + (busy ? 'أنهِ الجلسة الجارية أولاً' : 'يبقى سجل عملياته في التقارير') + '</small></span></button>' +
+      '<button type="button" class="menu-item danger" data-action="device-delete" data-device="' + esc(d.id) + '"' + (busy ? ' disabled' : '') + '>' + icon('trash') + '<span>حذف الجهاز<small>' + (busy ? 'أنهِ الجلسة الجارية أولاً' : 'يبقى سجله في التقارير، ويمكن التراجع') + '</small></span></button>' +
     '</div>'
   });
 }
@@ -620,19 +646,24 @@ function toggleMaintenance(deviceId) {
 function deleteDevice(deviceId) {
   const d = deviceById(deviceId);
   if (!d || sessionOfDevice(d.id)) return;
-  const resv = state.reservations.filter(function (r) { return r.deviceId === d.id && r.status === 'booked'; }).length;
-  askConfirm({
-    title: 'حذف ' + bdi(d.name) + '؟',
-    message: 'سيُحذف الجهاز من الصالة. تبقى عملياته السابقة في التقارير.' + (resv ? ' <b>تنبيه:</b> لديه ' + resv + ' حجز قادم سيُلغى.' : ''),
-    confirm: 'حذف الجهاز',
-    danger: true
-  }, function () {
+  withUndo(function () {
     state.devices = state.devices.filter(function (x) { return x.id !== d.id; });
     state.reservations.forEach(function (r) { if (r.deviceId === d.id && r.status === 'booked') r.status = 'cancelled'; });
     persist();
+    closeModal();
     refresh();
-    toast('حُذف ' + d.name, { type: 'info' });
-  });
+  }, 'حُذف ' + d.name + '. سجله باقٍ في التقارير');
+}
+
+function moveDevice(deviceId, delta) {
+  const i = state.devices.findIndex(function (d) { return d.id === deviceId; });
+  const j = i + delta;
+  if (i < 0 || j < 0 || j >= state.devices.length) return;
+  const tmp = state.devices[i];
+  state.devices[i] = state.devices[j];
+  state.devices[j] = tmp;
+  persist();
+  refresh();
 }
 
 /* =================== الحجوزات =================== */
@@ -693,7 +724,7 @@ function openReservationModal(resvId, preset) {
       if (!r && st < now - 5 * Billing.MIN) msgs.push('الموعد في الماضي.');
       info.innerHTML = msgs.length
         ? '<div class="note-warn">' + icon('alert') + '<span>' + msgs.join(' ') + '</span></div>'
-        : '<div class="estimate" style="padding:10px 14px"><span class="muted" style="font-size:13px;font-weight:700">' + relativeDay(st, now) + ' ' + fmtTime(st) + ' — ' + fmtTime(st + m * Billing.MIN) + '</span><span class="pill ok">الموعد متاح</span></div>';
+        : '<div class="estimate" style="padding:10px 14px"><span class="muted" style="font-size:13px;font-weight:700">' + relativeDay(st, now) + ' ' + fmtTime(st) + ' — ' + fmtTime(st + m * Billing.MIN) + '</span><span class="tag go">الموعد متاح</span></div>';
     },
     onSubmit: function () {
       const name = mval('f-name').trim();
@@ -742,20 +773,14 @@ function startReservation(resvId) {
   openStartModal(d.id, { player: r.name, phone: r.phone, planned: r.minutes, reservationId: r.id });
 }
 
-function setResvStatus(resvId, status, label) {
+function setResvStatus(resvId, status) {
   const r = resvById(resvId);
   if (!r) return;
-  askConfirm({
-    title: label + '؟',
-    message: 'حجز <b>' + esc(r.name) + '</b> — ' + relativeDay(r.start, Date.now()) + ' ' + fmtTime(r.start) + '.',
-    confirm: label,
-    danger: status === 'cancelled'
-  }, function () {
+  withUndo(function () {
     r.status = status;
     persist();
     refresh();
-    toast(status === 'cancelled' ? 'أُلغي الحجز' : 'سُجّل عدم الحضور', { type: 'info' });
-  });
+  }, (status === 'cancelled' ? 'أُلغي حجز ' : 'سُجّل عدم حضور ') + r.name);
 }
 
 /* =================== المنتجات والبيع المباشر =================== */
@@ -802,13 +827,13 @@ function openProductModal(productId) {
 function deleteProduct(productId) {
   const p = productById(productId);
   if (!p) return;
-  askConfirm({ title: 'حذف ' + esc(p.name) + '؟', message: 'يُحذف المنتج من القائمة. تبقى مبيعاته السابقة في التقارير.', confirm: 'حذف', danger: true }, function () {
+  withUndo(function () {
     state.products = state.products.filter(function (x) { return x.id !== p.id; });
     state.cart = state.cart.filter(function (i) { return i.productId !== p.id; });
     persist();
+    closeModal();
     refresh();
-    toast('حُذف ' + p.name, { type: 'info' });
-  });
+  }, 'حُذف ' + p.name + ' من القائمة');
 }
 
 function cartChange(productId, delta) {
@@ -830,11 +855,13 @@ function cartChange(productId, delta) {
 }
 
 function clearCart() {
-  state.cart.forEach(function (i) { returnStock(i.productId, i.qty); });
-  state.cart = [];
-  persist();
-  renderProducts();
-  renderCart();
+  withUndo(function () {
+    state.cart.forEach(function (i) { returnStock(i.productId, i.qty); });
+    state.cart = [];
+    persist();
+    renderProducts();
+    renderCart();
+  }, 'أُفرغت السلة');
 }
 
 function openSaleCheckout() {
@@ -855,6 +882,7 @@ function openSaleCheckout() {
         fieldHtml('f-discount', 'خصم', moneyInput('f-discount', '', '0')) +
         fieldHtml('f-paid', 'المبلغ المدفوع', moneyInput('f-paid', subtotal)) +
       '</div>' +
+      '<div class="quick-cash" id="quick-cash"></div>' +
       '<div class="stack-sm"><span class="field-label">طريقة الدفع</span><div class="seg seg-block" role="group">' +
         '<button type="button" data-pick="pay" data-value="cash" aria-pressed="true">' + icon('banknote', 'ic-sm') + 'نقدي</button>' +
         '<button type="button" data-pick="pay" data-value="card" aria-pressed="false">' + icon('wallet', 'ic-sm') + 'دفع إلكتروني</button>' +
@@ -867,13 +895,14 @@ function openSaleCheckout() {
       const total = subtotal - discount;
       if (!paidTouched) $('#f-paid').value = total;
       const paid = mval('f-paid') === '' ? total : Math.round(mnum('f-paid', total));
+      if (!calc || calc.total !== total) $('#quick-cash').innerHTML = quickCashHtml(total);
       calc = { discount: discount, total: total, paid: paid };
       const change = paid - total;
       $('#co-sum').innerHTML =
         (discount ? '<div class="sum-row discount"><span>الخصم</span><span dir="ltr">−' + fmtNum(discount) + '</span></div>' : '') +
-        '<div class="sum-row total"><span>الإجمالي</span><span>' + money(total) + '</span></div>' +
-        (change > 0 ? '<div class="sum-row"><span>الباقي للزبون</span><span style="color:var(--ok)">' + money(change) + '</span></div>' : '') +
-        (change < 0 ? '<div class="sum-row"><span>ناقص</span><span style="color:var(--danger)">' + money(-change) + '</span></div>' : '');
+        '<div class="sum-row total"><span>الإجمالي</span><span>' + ledMoney(total) + '</span></div>' +
+        (change > 0 ? '<div class="sum-row"><span>الباقي للزبون</span><span style="color:var(--go)">' + money(change) + '</span></div>' : '') +
+        (change < 0 ? '<div class="sum-row"><span>ناقص</span><span style="color:var(--red)">' + money(-change) + '</span></div>' : '');
       setError('co-err', '');
     },
     onSubmit: function () {
@@ -884,20 +913,22 @@ function openSaleCheckout() {
       }
       const now = Date.now();
       const rec = {
-        id: uid(), no: ++state.meta.receiptSeq, kind: 'sale', deviceId: null, deviceName: 'بيع مباشر', typeName: '',
+        id: uid(), no: state.meta.receiptSeq + 1, kind: 'sale', deviceId: null, deviceName: 'بيع مباشر', typeName: '',
         player: mval('f-customer').trim(), phone: '', mode: null, plannedMin: null, startedAt: now, endedAt: now,
         playedMs: 0, billedMinutes: 0, avgRate: 0, timeAmount: 0,
         items: state.cart.map(function (i) { return Object.assign({}, i); }),
         itemsAmount: subtotal, discount: calc.discount, total: calc.total, paid: calc.paid,
         method: pickValue('pay') || 'cash', note: ''
       };
-      state.history.push(rec);
-      state.cart = [];
-      persist();
-      closeModal();
-      refresh();
-      beep('ok');
-      toast('تم البيع — ' + money(rec.total), { action: { label: 'الإيصال', run: function () { openReceipt(rec.id); } } });
+      withUndo(function () {
+        state.meta.receiptSeq = rec.no;
+        state.history.push(rec);
+        state.cart = [];
+        persist();
+        closeModal();
+        refresh();
+        beep('ok');
+      }, 'تم البيع — ' + money(rec.total), [{ label: 'الإيصال', run: function () { openReceipt(rec.id); } }]);
     }
   });
 }
@@ -972,17 +1003,12 @@ function printReceipt(recId) {
 function deleteHistory(recId) {
   const r = state.history.find(function (x) { return x.id === recId; });
   if (!r) return;
-  askConfirm({
-    title: 'حذف العملية #' + r.no + '؟',
-    message: 'سيُحذف مبلغ <b>' + money(r.total) + '</b> من السجل والتقارير نهائياً. استخدم هذا لتصحيح الأخطاء فقط.',
-    confirm: 'حذف العملية',
-    danger: true
-  }, function () {
+  withUndo(function () {
     state.history = state.history.filter(function (x) { return x.id !== r.id; });
     persist();
+    closeModal();
     refresh();
-    toast('حُذفت العملية #' + r.no, { type: 'info' });
-  });
+  }, 'حُذف الإيصال #' + r.no + ' (' + money(r.total) + ')');
 }
 
 /* =================== البيانات =================== */
@@ -1082,22 +1108,28 @@ const ACTIONS = {
   'resv-new': function (el) { openReservationModal(null, { deviceId: el.dataset.device }); },
   'resv-edit': function (el) { openReservationModal(el.dataset.id); },
   'resv-start': function (el) { startReservation(el.dataset.id); },
-  'resv-cancel': function (el) { setResvStatus(el.dataset.id, 'cancelled', 'إلغاء الحجز'); },
-  'resv-noshow': function (el) { setResvStatus(el.dataset.id, 'noshow', 'تسجيل عدم الحضور'); },
+  'resv-cancel': function (el) { setResvStatus(el.dataset.id, 'cancelled'); },
+  'resv-noshow': function (el) { setResvStatus(el.dataset.id, 'noshow'); },
   'resv-delete': function (el) {
     const r = resvById(el.dataset.id);
     if (!r) return;
-    askConfirm({ title: 'حذف الحجز؟', message: 'حجز <b>' + esc(r.name) + '</b> بتاريخ ' + fmtDate(r.start) + '.', confirm: 'حذف', danger: true }, function () {
+    withUndo(function () {
       state.reservations = state.reservations.filter(function (x) { return x.id !== r.id; });
       persist();
       refresh();
-    });
+    }, 'حُذف حجز ' + r.name);
   },
   'res-tab': function (el) { ui.resTab = el.dataset.value; saveUi(); renderBookings(); },
 
-  'floor-status': function (el) { ui.floorStatus = el.dataset.value; saveUi(); renderFloorTools(); renderStations(); },
+  'floor-status': function (el) { ui.floorStatus = el.dataset.value; saveUi(); renderBoard(); renderStations(); },
   'floor-type': function (el) { ui.floorType = el.dataset.value; saveUi(); renderFloorTools(); renderStations(); },
-  'floor-reset': function () { ui.floorStatus = 'all'; ui.floorType = 'all'; ui.floorSearch = ''; saveUi(); renderFloorTools(); renderStations(); },
+  'floor-view': function (el) { ui.floorView = el.dataset.value; saveUi(); renderFloorTools(); renderStations(); },
+  'floor-reset': function () { ui.floorStatus = 'all'; ui.floorType = 'all'; ui.floorSearch = ''; saveUi(); refreshFloor(); },
+  'quick-start': function (el) { quickStart(el.dataset.device, Number(el.dataset.min) || 0); },
+  'paid-set': function (el) { const f = $('#f-paid'); if (f) { f.value = el.dataset.value; f.dispatchEvent(new Event('input', { bubbles: true })); } },
+  'device-up': function (el) { moveDevice(el.dataset.device, -1); },
+  'device-down': function (el) { moveDevice(el.dataset.device, 1); },
+  'shortcuts': function () { openShortcuts(); },
 
   'shop-cat': function (el) { ui.shopCat = el.dataset.value; saveUi(); renderShopTools(); renderProducts(); },
   'cart-add': function (el) { cartChange(el.dataset.id, 1); },

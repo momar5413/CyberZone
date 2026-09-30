@@ -36,6 +36,11 @@ function rangeRecords(now) {
   return state.history.filter(function (r) { return r.endedAt >= b[0] && r.endedAt < b[1]; });
 }
 
+function stat(label, value, note, cls) {
+  return '<div class="stat' + (cls ? ' ' + cls : '') + '"><div class="stat-label">' + label + '</div><div class="stat-value led">' + value + '</div>' +
+    (note ? '<div class="stat-note">' + note + '</div>' : '') + '</div>';
+}
+
 function summarize(recs) {
   const s = { total: 0, time: 0, items: 0, discount: 0, sessions: 0, sales: 0, playMs: 0, cash: 0, card: 0 };
   recs.forEach(function (r) {
@@ -72,20 +77,22 @@ function renderReports() {
     '</div>';
 
   const avgSession = sm.sessions ? sm.playMs / sm.sessions : 0;
-  const avgTicket = recs.length ? sm.total / recs.length : 0;
-  html += '<section class="kpis" aria-label="ملخص الفترة">' +
-    kpi('wallet', 'إجمالي الإيراد', moneyHtml(sm.total), recs.length + ' عملية') +
-    kpi('gamepad', 'إيراد الوقت', moneyHtml(sm.time), sm.total ? Math.round(sm.time / (sm.time + sm.items || 1) * 100) + '% من المبيعات' : '—') +
-    kpi('coffee', 'إيراد البوفيه', moneyHtml(sm.items), sm.sales + ' بيع مباشر') +
-    kpi('tag', 'الخصومات', moneyHtml(sm.discount), 'مخصومة من الإجمالي') +
-    kpi('users', 'عدد الجلسات', '<span class="num">' + fmtNum(sm.sessions) + '</span>', 'متوسط الجلسة ' + (avgSession ? fmtDur(avgSession) : '—')) +
-    kpi('clock', 'ساعات اللعب', '<span class="num">' + (sm.playMs / 3600000).toFixed(1) + '</span> <small>ساعة</small>', 'على كل الأجهزة') +
-    kpi('receipt', 'متوسط الفاتورة', moneyHtml(avgTicket), 'لكل عملية') +
-    kpi('banknote', 'طرق الدفع', '<span class="num">' + (sm.total ? Math.round(sm.cash / sm.total * 100) : 0) + '%</span> <small>نقدي</small>', 'إلكتروني: ' + money(sm.card)) +
+  const expenses = state.cashMoves.filter(function (m) { return m.kind === 'expense' && m.at >= b[0] && m.at < b[1]; });
+  const expTotal = expenses.reduce(function (acc, m) { return acc + m.amount; }, 0);
+  const net = sm.total - expTotal;
+  html += '<section class="stats" aria-label="ملخص الفترة">' +
+    stat('إجمالي الإيراد', ledMoney(sm.total), recs.length + ' إيصال · نقدي ' + (sm.total ? Math.round(sm.cash / sm.total * 100) : 0) + '%', 'lead') +
+    stat('المصاريف', ledMoney(expTotal), expenses.length ? expenses.length + ' بند · من الصندوق' : 'لا مصاريف مسجلة') +
+    stat('الصافي', ledMoney(net), 'الإيراد ناقص المصاريف', net < 0 ? 'neg' : '') +
+    stat('الخصومات', ledMoney(sm.discount), 'مخصومة من الإيصالات') +
+    stat('إيراد الوقت', ledMoney(sm.time), sm.total ? Math.round(sm.time / (sm.time + sm.items || 1) * 100) + '% من المبيعات' : '—') +
+    stat('إيراد البوفيه', ledMoney(sm.items), sm.sales + ' بيع مباشر') +
+    stat('الجلسات', fmtNum(sm.sessions), 'متوسط الجلسة ' + (avgSession ? fmtDur(avgSession) : '—')) +
+    stat('ساعات اللعب', (sm.playMs / 3600000).toFixed(1) + '<small>ساعة</small>', 'متوسط الإيصال ' + fmtNum(recs.length ? sm.total / recs.length : 0)) +
     '</section>';
 
   if (!recs.length) {
-    html += '<div class="panel empty">' + icon('chart') + '<b style="color:var(--fg)">لا توجد عمليات في هذه الفترة</b><span>ستظهر هنا الإيرادات والرسوم البيانية بعد إنهاء أول جلسة أو بيع.</span></div>';
+    html += '<div class="panel empty"><b>لا توجد إيصالات في هذه الفترة</b><span>تظهر هنا الإيرادات والرسوم بعد إنهاء أول جلسة أو بيع. جرّب فترة أطول.</span></div>';
     $('#view').innerHTML = html;
     return;
   }
@@ -93,15 +100,15 @@ function renderReports() {
   const spanDays = Math.round((b[1] - b[0]) / DAY_MS);
   const byHour = spanDays <= 1;
   html += '<div class="report-grid">' +
-    '<section class="panel span-8"><div class="panel-head"><div><h2 class="panel-title">' + icon('trend') + (byHour ? 'الإيراد حسب الساعة' : 'الإيراد اليومي') + '</h2>' +
+    '<section class="panel span-8"><div class="panel-head"><div><h2 class="panel-title">' + (byHour ? 'الإيراد حسب الساعة' : 'الإيراد اليومي') + '</h2>' +
       '<div class="legend" style="margin-top:6px"><span><i class="l1"></i>الوقت</span><span><i class="l2"></i>البوفيه</span></div></div></div>' +
       '<div class="chart" data-chart="revenue"></div><div id="revenue-table"></div></section>' +
-    '<section class="panel span-4"><div class="panel-head"><h2 class="panel-title">' + icon('monitor') + 'الإيراد حسب الجهاز</h2></div><div id="by-device"></div></section>' +
-    '<section class="panel span-6"><div class="panel-head"><div><h2 class="panel-title">' + icon('clock') + 'ساعات الذروة</h2><div class="panel-sub">عدد الجلسات حسب ساعة البدء</div></div></div><div class="chart" data-chart="peak"></div></section>' +
-    '<section class="panel span-6"><div class="panel-head"><div><h2 class="panel-title">' + icon('coffee') + 'الأكثر مبيعاً</h2><div class="panel-sub">الكمية المباعة وإيرادها</div></div></div><div id="top-products"></div></section>' +
-    '<section class="panel span-6"><div class="panel-head"><h2 class="panel-title">' + icon('users') + 'أفضل الزبائن</h2></div><div id="top-customers"></div></section>' +
-    '<section class="panel span-6"><div class="panel-head"><h2 class="panel-title">' + icon('gamepad') + 'حسب نوع الجهاز</h2></div><div id="by-type"></div></section>' +
-    '<section class="panel span-12"><div class="panel-head" style="flex-wrap:wrap"><h2 class="panel-title">' + icon('history') + 'سجل العمليات</h2>' +
+    '<section class="panel span-4"><div class="panel-head"><h2 class="panel-title">الإيراد حسب الجهاز</h2></div><div id="by-device"></div></section>' +
+    '<section class="panel span-6"><div class="panel-head"><div><h2 class="panel-title">ساعات الذروة</h2><div class="panel-sub">عدد الجلسات حسب ساعة البدء</div></div></div><div class="chart" data-chart="peak"></div></section>' +
+    '<section class="panel span-6"><div class="panel-head"><div><h2 class="panel-title">الأكثر مبيعاً</h2><div class="panel-sub">الكمية المباعة وإيرادها</div></div></div><div id="top-products"></div></section>' +
+    '<section class="panel span-6"><div class="panel-head"><h2 class="panel-title">أفضل الزبائن</h2></div><div id="top-customers"></div></section>' +
+    '<section class="panel span-6"><div class="panel-head"><h2 class="panel-title">حسب نوع الجهاز</h2></div><div id="by-type"></div></section>' +
+    '<section class="panel span-12"><div class="panel-head" style="flex-wrap:wrap"><h2 class="panel-title">سجل الإيصالات</h2>' +
       '<label class="search"><span class="sr-only">بحث في السجل</span>' + icon('search', 'ic-sm') + '<input class="input" id="hist-search" type="search" placeholder="رقم الإيصال، الجهاز أو الزبون" value="' + esc(ui.histSearch) + '" autocomplete="off"></label></div>' +
       '<div id="history-table"></div></section>' +
     '</div>';
@@ -197,7 +204,7 @@ function buildPeakData(recs) {
 }
 
 function barList(rows, opts) {
-  if (!rows.length) return '<div class="empty">' + icon('info') + '<span>لا بيانات</span></div>';
+  if (!rows.length) return '<div class="empty"><span>لا بيانات</span></div>';
   const max = Math.max.apply(null, rows.map(function (r) { return r.value; })) || 1;
   return '<div class="bars">' + rows.map(function (r, i) {
     const pct = r.value / max;
@@ -256,7 +263,7 @@ function renderTopCustomers(recs) {
   $('#top-customers').innerHTML = rows.length ? '<div class="table-wrap"><table class="table"><thead><tr><th>الزبون</th><th class="n">الزيارات</th><th class="n">اللعب</th><th class="n">الإنفاق</th><th>آخر زيارة</th></tr></thead><tbody>' +
     rows.map(function (x) {
       return '<tr><td>' + esc(x.name) + '</td><td class="n">' + x.visits + '</td><td class="n">' + fmtDur(x.ms) + '</td><td class="n">' + fmtNum(x.spent) + '</td><td>' + fmtDate(x.last) + '</td></tr>';
-    }).join('') + '</tbody></table></div>' : '<div class="empty">' + icon('users') + '<span>لا زبائن مسجلون بالاسم</span></div>';
+    }).join('') + '</tbody></table></div>' : '<div class="empty"><span>لا زبائن مسجلون بالاسم</span></div>';
 }
 
 function renderByType(recs) {
@@ -273,7 +280,7 @@ function renderByType(recs) {
   $('#by-type').innerHTML = rows.length ? '<div class="table-wrap"><table class="table"><thead><tr><th>النوع</th><th class="n">الجلسات</th><th class="n">الساعات</th><th class="n">الإيراد</th><th class="n">الحصة</th></tr></thead><tbody>' +
     rows.map(function (x) {
       return '<tr><td>' + esc(x.name) + '</td><td class="n">' + x.n + '</td><td class="n">' + (x.ms / 3600000).toFixed(1) + '</td><td class="n">' + fmtNum(x.total) + '</td><td class="n">' + Math.round(x.total / sum * 100) + '%</td></tr>';
-    }).join('') + '</tbody></table></div>' : '<div class="empty">' + icon('gamepad') + '<span>لا جلسات في الفترة</span></div>';
+    }).join('') + '</tbody></table></div>' : '<div class="empty"><span>لا جلسات في الفترة</span></div>';
 }
 
 function renderHistoryTable() {
@@ -285,14 +292,14 @@ function renderHistoryTable() {
     return (String(r.no) + ' ' + r.deviceName + ' ' + (r.player || '') + ' ' + (r.phone || '')).toLowerCase().indexOf(q) !== -1;
   }).reverse();
   if (!recs.length) {
-    box.innerHTML = '<div class="empty">' + icon('search') + '<span>لا عمليات مطابقة</span></div>';
+    box.innerHTML = '<div class="empty"><span>لا عمليات مطابقة</span></div>';
     return;
   }
   const shown = recs.slice(0, ui.histLimit);
   box.innerHTML = '<div class="table-wrap"><table class="table"><thead><tr>' +
     '<th>#</th><th>التاريخ</th><th>الجهاز</th><th>الزبون</th><th class="n">مدة اللعب</th><th class="n">الوقت</th><th class="n">البوفيه</th><th class="n">الخصم</th><th class="n">الإجمالي</th><th>الدفع</th><th class="actions"></th>' +
     '</tr></thead><tbody>' + shown.map(function (r) {
-      return '<tr><td class="num">' + r.no + '</td><td>' + fmtDate(r.endedAt) + ' <span class="faint num">' + fmtTime(r.endedAt) + '</span></td>' +
+      return '<tr><td class="mono">' + r.no + '</td><td>' + fmtDate(r.endedAt) + ' <span class="faint num">' + fmtTime(r.endedAt) + '</span></td>' +
         '<td>' + bdi(r.deviceName) + '</td><td>' + esc(r.player || '—') + '</td>' +
         '<td class="n">' + (r.playedMs ? fmtDur(r.playedMs) : '—') + '</td>' +
         '<td class="n">' + fmtNum(r.timeAmount) + '</td><td class="n">' + fmtNum(r.itemsAmount) + '</td>' +

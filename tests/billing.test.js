@@ -68,3 +68,13 @@ test('money rounding supports nearest and up', () => {
 test('items total sums price times quantity', () => {
   assert.equal(B.itemsTotal([{ price: 7000, qty: 2 }, { price: 3000, qty: 1 }]), 17000);
 });
+
+test('drawer expected cash counts only cash receipts and cash movements', () => {
+  const r = B.drawer(100000,
+    [{ total: 43000, method: 'cash' }, { total: 20000, method: 'card' }, { total: 7000, method: 'cash' }],
+    [{ kind: 'expense', amount: 10000 }, { kind: 'withdraw', amount: 30000 }, { kind: 'deposit', amount: 5000 }]);
+  assert.equal(r.cashSales, 50000);
+  assert.equal(r.cardSales, 20000);
+  assert.equal(r.expected, 100000 + 50000 - 10000 - 30000 + 5000);
+  assert.equal(r.receipts, 3);
+});

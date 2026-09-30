@@ -116,7 +116,28 @@
     s.rate = rate;
   }
 
+  /*
+   * الصندوق: الرصيد المتوقع = الافتتاحي + المقبوض نقداً − المصاريف − السحوبات + الإيداعات
+   * receipts: [{ total, method }]   moves: [{ kind: 'expense'|'withdraw'|'deposit', amount }]
+   */
+  function drawer(opening, receipts, moves) {
+    var r = { opening: opening || 0, cashSales: 0, cardSales: 0, expenses: 0, withdrawals: 0, deposits: 0, receipts: receipts.length };
+    for (var i = 0; i < receipts.length; i++) {
+      if (receipts[i].method === 'card') r.cardSales += receipts[i].total;
+      else r.cashSales += receipts[i].total;
+    }
+    for (var j = 0; j < moves.length; j++) {
+      var m = moves[j];
+      if (m.kind === 'expense') r.expenses += m.amount;
+      else if (m.kind === 'withdraw') r.withdrawals += m.amount;
+      else if (m.kind === 'deposit') r.deposits += m.amount;
+    }
+    r.expected = r.opening + r.cashSales - r.expenses - r.withdrawals + r.deposits;
+    return r;
+  }
+
   var api = {
+    drawer: drawer,
     MIN: MIN,
     HOUR: HOUR,
     elapsedMs: elapsedMs,

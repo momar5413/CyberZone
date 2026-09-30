@@ -17,6 +17,8 @@ const ui = Object.assign({
   to: '',
   histSearch: '',
   histLimit: 40,
+  floorView: 'grid',
+  mvKind: 'expense',
   demoHidden: false
 }, readUi());
 
@@ -25,7 +27,7 @@ function readUi() {
 }
 function saveUi() {
   try {
-    const keep = { floorStatus: ui.floorStatus, floorType: ui.floorType, shopCat: ui.shopCat, resTab: ui.resTab, range: ui.range, from: ui.from, to: ui.to, demoHidden: ui.demoHidden };
+    const keep = { floorStatus: ui.floorStatus, floorType: ui.floorType, floorView: ui.floorView, shopCat: ui.shopCat, resTab: ui.resTab, range: ui.range, from: ui.from, to: ui.to, demoHidden: ui.demoHidden };
     localStorage.setItem(UI_KEY, JSON.stringify(keep));
   } catch (e) { /* تخزين غير متاح */ }
 }
@@ -73,14 +75,25 @@ function devicePhase(d, now) {
 }
 
 const PHASE_LABEL = {
-  free: ['متاح', 'ok'],
-  open: ['وقت مفتوح', 'info'],
-  running: ['قيد اللعب', 'info'],
-  warn: ['ينتهي قريباً', 'warn'],
-  over: ['انتهى الوقت', 'danger'],
-  paused: ['متوقف مؤقتاً', 'warn'],
+  free: ['متاح', 'go'],
+  open: ['وقت مفتوح', 'run'],
+  running: ['يلعب', 'run'],
+  warn: ['ينتهي قريباً', 'amber'],
+  over: ['انتهى الوقت', 'red'],
+  paused: ['متوقف', 'idle'],
   maint: ['صيانة', 'idle']
 };
+
+/* ---------- الوردية ---------- */
+
+function openShift() { return state.shifts.find(function (x) { return !x.closedAt; }) || null; }
+
+function shiftDrawer(shift, now) {
+  const to = shift.closedAt || now + 1;
+  const recs = state.history.filter(function (r) { return r.endedAt >= shift.openedAt && r.endedAt < to; });
+  const moves = state.cashMoves.filter(function (m) { return m.at >= shift.openedAt && m.at < to; });
+  return Billing.drawer(shift.opening, recs, moves);
+}
 
 // الحجز الأقرب لجهاز: متأخر ضمن المهلة، أو يبدأ خلال windowMin دقيقة
 function nextReservation(deviceId, now, windowMin) {
@@ -125,7 +138,9 @@ function recentPlayers() {
 /* ---------- الحفظ ---------- */
 
 let storageWarned = false;
+let mutationSeq = 0;
 function persist() {
+  mutationSeq++;
   const ok = storage.write(state);
   if (!ok && !storageWarned) {
     storageWarned = true;
@@ -139,6 +154,7 @@ const VIEWS = {
   floor: { title: 'الصالة', icon: 'grid', render: function () { renderFloor(); } },
   bookings: { title: 'الحجوزات', icon: 'calendar', render: function () { renderBookings(); } },
   shop: { title: 'البوفيه', icon: 'coffee', render: function () { renderShop(); } },
+  cash: { title: 'الصندوق', icon: 'wallet', render: function () { renderCash(); } },
   reports: { title: 'التقارير', icon: 'chart', render: function () { renderReports(); } },
   settings: { title: 'الإعدادات', icon: 'settings', render: function () { renderSettings(); } }
 };
@@ -158,18 +174,16 @@ function go(view) {
 }
 
 function renderNav() {
-  const items = Object.keys(VIEWS).map(function (k) {
+  const keys = Object.keys(VIEWS);
+  $('#nav').innerHTML = keys.map(function (k) {
     const v = VIEWS[k];
-    const current = ui.view === k ? ' aria-current="page"' : '';
-    return { k: k, v: v, current: current };
-  });
-  $('#nav').innerHTML = items.map(function (x) {
-    return '<a class="nav-link" href="#' + x.k + '"' + x.current + ' title="' + x.v.title + '">' + icon(x.v.icon) +
-      '<span>' + x.v.title + '</span><b class="nav-badge" data-badge="' + x.k + '" hidden></b></a>';
+    return '<a class="tab-link" href="#' + k + '"' + (ui.view === k ? ' aria-current="page"' : '') + '>' + v.title +
+      '<b class="badge" data-badge="' + k + '" hidden></b></a>';
   }).join('');
-  $('#tabbar').innerHTML = items.map(function (x) {
-    return '<a class="tab" href="#' + x.k + '"' + x.current + '>' + icon(x.v.icon) + '<span>' + x.v.title +
-      '</span><b class="nav-badge" data-badge="' + x.k + '" hidden></b></a>';
+  $('#tabbar').innerHTML = keys.map(function (k) {
+    const v = VIEWS[k];
+    return '<a class="tab" href="#' + k + '"' + (ui.view === k ? ' aria-current="page"' : '') + '>' + icon(v.icon) + '<span>' + v.title +
+      '</span><b class="badge" data-badge="' + k + '" hidden></b></a>';
   }).join('');
   updateBadges(Date.now());
 }
@@ -183,23 +197,18 @@ function renderView() {
 
 function setTopbar(title, sub, actions) {
   $('#topbar').innerHTML =
-    '<div class="stack-sm" style="gap:4px;min-width:0">' +
-      '<div class="mobile-brand"><span class="brand-mark">' + icon('gamepad', 'ic-sm') + '</span><span class="brand-name">' + esc(state.settings.centerName) + '</span></div>' +
-      '<h1>' + title + '</h1>' +
-      (sub ? '<div class="sub">' + sub + '</div>' : '') +
-    '</div>' +
-    (actions ? '<div class="top-actions">' + actions + '</div>' : '');
+    '<div style="min-width:0"><h1>' + title + '</h1>' + (sub ? '<div class="sub">' + sub + '</div>' : '') + '</div>' +
+    (actions ? '<div class="head-actions">' + actions + '</div>' : '');
 }
 
 function renderBanners() {
   const out = [];
   if (!storage.ok) {
-    out.push('<div class="banner warn">' + icon('alert') + '<p><b>الحفظ غير متاح في هذا المتصفح.</b> ستعمل الواجهة، لكن البيانات ستضيع عند إغلاق الصفحة. افتح التطبيق في نافذة عادية (غير خاصة) أو فعّل تخزين المواقع.</p></div>');
+    out.push('<div class="notice warn"><p><b>الحفظ غير متاح في هذا المتصفح.</b> الواجهة تعمل، لكن البيانات ستضيع عند إغلاق الصفحة. افتح التطبيق في نافذة عادية (غير خاصة) أو فعّل تخزين المواقع.</p></div>');
   }
   if (state.meta.demo && !ui.demoHidden) {
-    out.push('<div class="banner">' + icon('info') +
-      '<p><b>هذه بيانات تجريبية</b> لتجربة النظام: أجهزة وجلسات جارية وسجل آخر 30 يوماً. عندما تكون جاهزاً امسحها وابدأ بصالتك.</p>' +
-      '<div class="row"><button class="btn btn-sm btn-primary" data-action="demo-clear">' + icon('reset', 'ic-sm') + 'ابدأ ببيانات فارغة</button>' +
+    out.push('<div class="notice"><p><b>بيانات تجريبية.</b> الأجهزة والجلسات والسجل هنا للتجربة فقط. عندما تجهز، أدخل أجهزة صالتك وأسعارها وابدأ من الصفر.</p>' +
+      '<div class="row" style="gap:6px"><button class="btn btn-sm btn-primary" data-action="setup-open">جهّز صالتي</button>' +
       '<button class="btn btn-sm btn-ghost" data-action="demo-hide">إخفاء</button></div></div>');
   }
   $('#banners').innerHTML = out.join('');
@@ -212,13 +221,21 @@ function applyTheme() {
   else root.removeAttribute('data-theme');
   const dark = t === 'dark' || (t === 'auto' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
   const btn = $('#theme-btn');
-  if (btn) btn.innerHTML = icon(dark ? 'sun' : 'moon') + '<span class="sr-only">' + (dark ? 'السمة الفاتحة' : 'السمة الداكنة') + '</span>';
+  if (btn) {
+    btn.innerHTML = icon(dark ? 'sun' : 'moon');
+    btn.setAttribute('aria-label', dark ? 'التبديل إلى السمة الفاتحة' : 'التبديل إلى السمة الداكنة');
+    btn.title = btn.getAttribute('aria-label');
+  }
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', dark ? '#070a14' : '#eef1f7');
+  if (meta) meta.setAttribute('content', dark ? '#141518' : '#e9ebee');
 }
 
 function applyBrand() {
-  $('#brand-name').textContent = state.settings.centerName;
+  const name = state.settings.centerName.trim();
+  const wm = $('#wordmark');
+  if (/^cyber\s*zone$/i.test(name)) wm.innerHTML = 'CYBER<b>ZONE</b>';
+  else wm.textContent = name;
+  wm.setAttribute('aria-label', name);
   updateTitle(Date.now());
 }
 
@@ -289,31 +306,54 @@ function askConfirm(opts, onYes) {
 function toast(message, opts) {
   opts = opts || {};
   const type = opts.type || 'ok';
-  const ic = { ok: 'check', warn: 'alert', danger: 'bell', info: 'info' }[type] || 'info';
+  const lamp = { ok: 'go', warn: 'amber', danger: 'red', info: 'brand' }[type] || 'brand';
   const el = document.createElement('div');
-  el.className = 'toast ' + type;
+  el.className = 'toast';
   el.setAttribute('role', type === 'danger' ? 'alert' : 'status');
-  el.innerHTML = icon(ic) + '<p></p>';
+  el.innerHTML = '<span class="lamp ' + lamp + '"></span><p></p>';
   el.querySelector('p').textContent = message;
-  if (opts.action) {
+  const actions = opts.actions || (opts.action ? [opts.action] : []);
+  actions.forEach(function (a) {
     const b = document.createElement('button');
     b.type = 'button';
-    b.className = 'btn btn-sm';
-    b.textContent = opts.action.label;
-    b.addEventListener('click', function () { el.remove(); opts.action.run(); });
+    b.className = 't-act';
+    b.textContent = a.label;
+    b.addEventListener('click', function () { el.remove(); a.run(); });
     el.appendChild(b);
-  }
+  });
   const x = document.createElement('button');
   x.type = 'button';
-  x.className = 'btn btn-ghost btn-icon btn-sm';
+  x.className = 't-x';
   x.setAttribute('aria-label', 'إغلاق');
   x.innerHTML = icon('x', 'ic-sm');
   x.addEventListener('click', function () { el.remove(); });
   el.appendChild(x);
   const box = $('#toasts');
   box.appendChild(el);
-  while (box.children.length > 4) box.firstChild.remove();
-  setTimeout(function () { el.remove(); }, opts.timeout || 4200);
+  while (box.children.length > 2) box.firstChild.remove();
+  setTimeout(function () { el.remove(); }, opts.timeout || (actions.length ? 8000 : 4000));
+}
+
+/*
+ * تراجع: تُحفظ نسخة من البيانات قبل العملية، ويمكن استعادتها ما لم يحدث تعديل آخر بعدها.
+ * يغني عن نوافذ «هل أنت متأكد؟» للعمليات الفردية.
+ */
+function withUndo(run, message, extra) {
+  const snap = JSON.stringify(state);
+  run();
+  const seq = mutationSeq;
+  const actions = (extra || []).concat([{
+    label: 'تراجع',
+    run: function () {
+      if (mutationSeq !== seq) { toast('لا يمكن التراجع بعد تعديل آخر', { type: 'warn' }); return; }
+      state = normalizeState(JSON.parse(snap));
+      persist();
+      closeModal();
+      refresh();
+      toast('تم التراجع', { type: 'info' });
+    }
+  }]);
+  toast(message, { actions: actions, timeout: 9000 });
 }
 
 /* ---------- الصوت والتنبيهات ---------- */
@@ -399,21 +439,47 @@ function updateLive(now) {
     } else if (kind === 'cost') {
       el.textContent = fmtNum(sessionTotals(s, now).total);
     } else if (kind === 'meter') {
-      const pct = s.plannedMin ? clamp(Billing.elapsedMs(s, now) / (s.plannedMin * Billing.MIN) * 100, 0, 100) : 0;
-      el.style.width = pct.toFixed(2) + '%';
+      el.style.width = ledWidth(s, now);
     }
   });
+}
+
+// الشريط يفرغ مع الوقت المتبقي، مقرّباً لأقرب خانة من 24
+function ledWidth(s, now) {
+  if (!s.plannedMin) return '0%';
+  const rem = Billing.remainingMs(s, now);
+  if (rem <= 0) return '100%';
+  const lit = Math.ceil(rem / (s.plannedMin * Billing.MIN) * 24);
+  return (clamp(lit, 1, 24) / 24 * 100).toFixed(3) + '%';
 }
 
 function pendingTotal(now) {
   return state.sessions.reduce(function (a, s) { return a + sessionTotals(s, now).total; }, 0);
 }
 
+let lastMinute = -1;
 function updateClock(now) {
-  const c = $('#clock');
-  if (c) c.textContent = fmtTime(now);
-  const d = $('#clock-date');
-  if (d) d.textContent = fmtDate(now, true);
+  const minute = Math.floor(now / 60000);
+  if (minute === lastMinute) return;
+  lastMinute = minute;
+  const d0 = new Date(now);
+  const h = d0.getHours() % 12 || 12;
+  $('#clock').textContent = h + ':' + pad2(d0.getMinutes());
+  $('#clock-date').textContent = fmtDate(now, true) + ' · ' + (d0.getHours() < 12 ? 'صباحاً' : 'مساءً');
+  renderShiftChip(now);
+}
+
+function renderShiftChip(now) {
+  const chip = $('#shift-chip');
+  if (!chip) return;
+  const sh = openShift();
+  if (sh) {
+    chip.innerHTML = '<span class="lamp go"></span><span>وردية منذ ' + fmtTime(sh.openedAt) + '</span>';
+    chip.title = 'الوردية مفتوحة منذ ' + fmtDur(now - sh.openedAt);
+  } else {
+    chip.innerHTML = '<span class="lamp"></span><span>لا وردية مفتوحة</span>';
+    chip.title = 'افتح وردية لمتابعة النقد في الصندوق';
+  }
 }
 
 function updateBadges(now) {
@@ -428,7 +494,7 @@ function updateBadges(now) {
     if (st === 'soon' || st === 'due' || st === 'late') resv++;
   });
   $$('[data-badge="floor"]').forEach(function (b) { b.textContent = attention; b.hidden = !attention; });
-  $$('[data-badge="bookings"]').forEach(function (b) { b.textContent = resv; b.hidden = !resv; b.style.background = 'var(--violet)'; });
+  $$('[data-badge="bookings"]').forEach(function (b) { b.textContent = resv; b.hidden = !resv; b.classList.add('soft'); });
 }
 
 function updateTitle(now) {
@@ -587,8 +653,24 @@ function onChange(e) {
   if (t.id === 'import-file') { importBackup(t); return; }
 }
 
+const TAB_KEYS = ['floor', 'bookings', 'shop', 'cash', 'reports', 'settings'];
+
+function typingTarget(el) {
+  return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
+}
+
 function onKey(e) {
   if (e.key === 'Escape' && modal) { closeModal(); return; }
+  if (!modal && !typingTarget(e.target) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    const digit = /^Digit([1-6])$/.exec(e.code || '');
+    if (digit) { e.preventDefault(); go(TAB_KEYS[Number(digit[1]) - 1]); return; }
+    if (e.key === '/' || e.code === 'Slash' && !e.shiftKey) {
+      const f = $('#view input[type="search"]');
+      if (f) { e.preventDefault(); f.focus(); f.select(); }
+      return;
+    }
+    if (e.key === '?' || (e.code === 'Slash' && e.shiftKey)) { e.preventDefault(); openShortcuts(); return; }
+  }
   if (e.key === 'Tab' && modal) {
     const focusables = $$('#modal-root button:not([disabled]), #modal-root input:not([disabled]), #modal-root select, #modal-root textarea, #modal-root [tabindex="0"]').filter(function (x) { return x.offsetParent !== null; });
     if (!focusables.length) return;
@@ -642,7 +724,6 @@ function boot() {
     persist();
   }
 
-  $('#brand-mark').innerHTML = icon('gamepad');
   applyTheme();
   applyBrand();
 

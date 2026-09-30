@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>CyberZone · إدارة الصالة</title>
   <meta name="description" content="CyberZone — نظام متكامل لإدارة صالات الألعاب: مؤقتات الأجهزة، الحجوزات، البوفيه، الإيصالات والتقارير.">
-  <meta name="theme-color" content="#070a14">
+  <meta name="theme-color" content="#141518">
   <!-- pwa:start -->
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="assets/icons/icon.svg" type="image/svg+xml">
@@ -15,38 +15,31 @@
   <!-- pwa:end -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&family=Chakra+Petch:wght@500;600;700&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Handjet:wght@400..700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="assets/css/app.css">
 </head>
 <body>
 <!-- app:start -->
-<div class="app">
-  <aside class="rail" aria-label="التنقل الرئيسي">
-    <div class="brand">
-      <span class="brand-mark" id="brand-mark"></span>
-      <div style="min-width:0">
-        <div class="brand-name" id="brand-name">CyberZone</div>
-        <div class="brand-sub">إدارة صالة الألعاب</div>
-      </div>
+<header class="top">
+  <a class="wordmark" id="wordmark" href="#floor" aria-label="CyberZone">CYBER<b>ZONE</b></a>
+  <nav class="tabs" id="nav" aria-label="الأقسام"></nav>
+  <div class="top-end">
+    <a class="shift-chip" id="shift-chip" href="#cash"></a>
+    <div style="text-align:center">
+      <div class="clock led" id="clock" aria-label="الساعة">--:--</div>
+      <div class="clock-date" id="clock-date"></div>
     </div>
-    <nav class="nav" id="nav"></nav>
-    <div class="rail-foot">
-      <div>
-        <div class="rail-clock hud" id="clock">--:--</div>
-        <div class="rail-date" id="clock-date"></div>
-      </div>
-      <button type="button" class="btn btn-ghost btn-icon" id="theme-btn" data-action="toggle-theme" title="تبديل السمة" aria-label="تبديل السمة"></button>
-    </div>
-  </aside>
-
-  <div class="main">
-    <header class="topbar" id="topbar"></header>
-    <div id="banners"></div>
-    <main id="view" class="view-root" tabindex="-1"></main>
+    <button type="button" class="btn btn-ghost btn-icon" id="theme-btn" data-action="toggle-theme" aria-label="تبديل السمة"></button>
   </div>
+</header>
+
+<div class="main">
+  <div id="banners"></div>
+  <header class="page-head" id="topbar"></header>
+  <main id="view" class="view-root" tabindex="-1"></main>
 </div>
 
-<nav class="tabbar" id="tabbar" aria-label="التنقل"></nav>
+<nav class="tabbar" id="tabbar" aria-label="الأقسام"></nav>
 <div id="modal-root"></div>
 <div class="toasts" id="toasts" aria-live="polite"></div>
 <div class="tooltip" id="tooltip" role="tooltip" hidden></div>
@@ -60,8 +53,9 @@
 <script src="assets/js/store.js"></script>
 <script src="assets/js/views.js"></script>
 <script src="assets/js/reports.js"></script>
-<script src="assets/js/settings.js"></script>
 <script src="assets/js/actions.js"></script>
+<script src="assets/js/settings.js"></script>
+<script src="assets/js/cash.js"></script>
 <script src="assets/js/app.js"></script>
 <!-- pwa:start -->
 <script>
