@@ -1,0 +1,138 @@
+# يبني تطبيق أندرويد وبرامج سطح المكتب من نفس كود الواجهة،
+# وعند الدمج في main ينشرها في صفحة Releases للتنزيل المباشر.
+name: Build apps
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apps-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm test
+
+  android:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+      - run: npm ci
+      - run: npm run android:sync
+      - name: Build APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+      - run: cp android/app/build/outputs/apk/debug/app-debug.apk CyberZone-android.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: CyberZone-android.apk
+          if-no-files-found: error
+
+  desktop:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows
+            os: windows-latest
+            args: --bundles nsis
+            rust_targets: ''
+          - name: macos
+            os: macos-latest
+            args: --target universal-apple-darwin --bundles dmg
+            rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
+          - name: linux
+            os: ubuntu-22.04
+            args: --bundles deb,appimage
+            rust_targets: ''
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_targets }}
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - name: Linux dependencies
+        if: matrix.name == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - run: npm ci
+      - run: npx tauri build ${{ matrix.args }}
+      - name: Collect installers
+        shell: bash
+        run: |
+          mkdir -p out
+          find src-tauri/target -path '*/bundle/*' -type f \( -name '*-setup.exe' -o -name '*.dmg' -o -name '*.AppImage' -o -name '*.deb' \) -exec cp {} out/ \;
+          ls -la out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.name }}
+          path: out/*
+          if-no-files-found: error
+
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [android, desktop]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        run: echo "value=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@v4
+        with:
+          path: files
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.value }}
+          name: CyberZone ${{ steps.version.outputs.value }}
+          make_latest: true
+          files: files/*
+          body: |
+            ## التنزيل
+            | الجهاز | الملف |
+            |---|---|
+            | أندرويد | `CyberZone-android.apk` |
+            | ويندوز 10 و11 | الملف المنتهي بـ `-setup.exe` |
+            | ماك | الملف المنتهي بـ `.dmg` |
+            | لينكس | `.AppImage` أو `.deb` |
+
+            ## ملاحظات التثبيت
+            - **أندرويد:** افتح الملف واسمح بالتثبيت من هذا المصدر عندما يطلب الهاتف ذلك.
+            - **ويندوز:** إن ظهرت رسالة «Windows protected your PC» اضغط «More info» ثم «Run anyway». الرسالة تظهر لأن البرنامج غير موقّع بشهادة مدفوعة.
+            - **ماك:** اسحب التطبيق إلى Applications، ثم افتحه أول مرة بالضغط بزر الفأرة الأيمن واختيار «Open».
+
+            البيانات تُحفظ على كل جهاز على حدة. لنقلها بين الأجهزة استخدم «تصدير نسخة احتياطية» و«استعادة من ملف» في الإعدادات.

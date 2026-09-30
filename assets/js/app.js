@@ -228,6 +228,7 @@ function applyTheme() {
   }
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.setAttribute('content', dark ? '#141518' : '#e9ebee');
+  Native.setBarsStyle(dark);
 }
 
 function applyBrand() {
@@ -525,7 +526,21 @@ function tick() {
 
 /* ---------- الملفات ---------- */
 
+function canPrint() {
+  return !isFramed() && Native.canPrint;
+}
+
 function offerFile(filename, content, mime) {
+  if (Native.any) {
+    Native.saveFile(filename, content).then(function (r) {
+      if (!r) { copyModal(filename, content); return; }
+      if (r.path) toast('حُفظ الملف: ' + r.path);
+    }).catch(function (err) {
+      if (/cancel/i.test(String(err && (err.message || err)))) return;
+      copyModal(filename, content);
+    });
+    return;
+  }
   if (!isFramed()) {
     try {
       const blob = new Blob([content], { type: mime });
@@ -539,11 +554,15 @@ function offerFile(filename, content, mime) {
       return;
     } catch (e) { /* ننتقل للنسخ */ }
   }
+  copyModal(filename, content);
+}
+
+function copyModal(filename, content) {
   openModal({
     title: 'نسخ ' + esc(filename),
     wide: true,
-    body: '<p class="hint">تنزيل الملفات غير متاح في هذه المعاينة. انسخ المحتوى والصقه في ملف باسم <b>' + esc(filename) + '</b>.</p>' +
-      '<textarea class="textarea" id="f-export" readonly style="min-height:260px;direction:ltr;font-family:ui-monospace,monospace;font-size:12px">' + esc(content) + '</textarea>',
+    body: '<p class="hint">تعذّر حفظ الملف مباشرة هنا. انسخ المحتوى والصقه في ملف باسم <b>' + esc(filename) + '</b>.</p>' +
+      '<textarea class="textarea" id="f-export" readonly style="min-height:260px;direction:ltr;font-family:var(--font-mono);font-size:12px">' + esc(content) + '</textarea>',
     foot: '<button type="button" class="btn btn-primary" data-action="copy-export">' + icon('copy', 'ic-sm') + 'نسخ المحتوى</button><button type="button" class="btn" data-action="modal-close">إغلاق</button>'
   });
 }

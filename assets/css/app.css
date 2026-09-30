@@ -168,12 +168,13 @@ a { color: var(--brand); }
 /* ---------- الشريط العلوي ---------- */
 .top {
   position: sticky;
-  top: env(safe-area-inset-top, 0px);
+  top: 0;
   z-index: 30;
   display: flex;
   align-items: stretch;
   gap: clamp(12px, 2vw, 28px);
-  height: 60px;
+  height: calc(60px + env(safe-area-inset-top, 0px));
+  padding-top: env(safe-area-inset-top, 0px);
   padding-inline: var(--gutter);
   background: var(--bg);
   border-bottom: 1px solid var(--line);
@@ -1095,7 +1096,7 @@ details.data-table .table-wrap { margin-top: 8px; max-height: 260px; overflow: a
 
 @media (max-width: 880px) {
   .tabs { display: none; }
-  .top { height: 54px; }
+  .top { height: calc(54px + env(safe-area-inset-top, 0px)); }
   .wordmark { font-size: 26px; }
   .clock { font-size: 24px; }
   .main { padding-block-end: calc(92px + env(safe-area-inset-bottom, 0px)); }
@@ -1187,3 +1188,6 @@ details.data-table .table-wrap { margin-top: 8px; max-height: 260px; overflow: a
   #print-root .receipt { max-width: 80mm; padding: 0; background: #fff; color: #000; -webkit-mask: none; mask: none; }
   @page { margin: 6mm; }
 }
+
+/* منطقة المحتوى تُركَّز برمجياً فقط عند التنقل، فلا حاجة لإطار التركيز حولها */
+#view:focus { outline: none; }

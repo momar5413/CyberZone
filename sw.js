@@ -1,13 +1,15 @@
 /* CyberZone — عامل الخدمة: يحفظ ملفات التطبيق ليعمل دون اتصال */
-const CACHE = 'cyberzone-v2.1.0';
+const CACHE = 'cyberzone-v2.2.0';
 const SHELL = [
   './',
   './index.html',
   './manifest.webmanifest',
   './assets/css/app.css',
+  './assets/css/fonts.css',
   './assets/js/billing.js',
   './assets/js/utils.js',
   './assets/js/icons.js',
+  './assets/js/native.js',
   './assets/js/store.js',
   './assets/js/views.js',
   './assets/js/reports.js',
