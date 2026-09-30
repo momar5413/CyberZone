@@ -1,4 +1,4 @@
-# يبني تطبيق أندرويد وبرامج سطح المكتب من نفس كود الواجهة،
+# يبني تطبيق أندرويد وبرنامجَي ويندوز وماك من نفس كود الواجهة،
 # وعند الدمج في main ينشرها في صفحة Releases للتنزيل المباشر.
 name: Build apps
 
@@ -65,10 +65,6 @@ jobs:
             os: macos-latest
             args: --target universal-apple-darwin --bundles dmg
             rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
-          - name: linux
-            os: ubuntu-22.04
-            args: --bundles deb,appimage
-            rust_targets: ''
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -82,18 +78,13 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
-      - name: Linux dependencies
-        if: matrix.name == 'linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       - run: npm ci
       - run: npx tauri build ${{ matrix.args }}
       - name: Collect installers
         shell: bash
         run: |
           mkdir -p out
-          find src-tauri/target -path '*/bundle/*' -type f \( -name '*-setup.exe' -o -name '*.dmg' -o -name '*.AppImage' -o -name '*.deb' \) -exec cp {} out/ \;
+          find src-tauri/target -path '*/bundle/*' -type f \( -name '*-setup.exe' -o -name '*.dmg' \) -exec cp {} out/ \;
           ls -la out
       - uses: actions/upload-artifact@v4
         with:
@@ -128,7 +119,6 @@ jobs:
             | أندرويد | `CyberZone-android.apk` |
             | ويندوز 10 و11 | الملف المنتهي بـ `-setup.exe` |
             | ماك | الملف المنتهي بـ `.dmg` |
-            | لينكس | `.AppImage` أو `.deb` |
 
             ## ملاحظات التثبيت
             - **أندرويد:** افتح الملف واسمح بالتثبيت من هذا المصدر عندما يطلب الهاتف ذلك.
