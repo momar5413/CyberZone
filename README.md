@@ -90,7 +90,6 @@ python3 -m http.server 8080
 | أندرويد | [Capacitor](https://capacitorjs.com) | `CyberZone-android.apk` |
 | ويندوز 10 و11 | [Tauri](https://tauri.app) | `CyberZone_x.y.z_x64-setup.exe` |
 | ماك (Intel وApple Silicon) | Tauri | `CyberZone_x.y.z_universal.dmg` |
-| لينكس | Tauri | `.AppImage` و`.deb` |
 
 **التنزيل:** عند كل دمج في `main` يبني GitHub Actions كل الملفات تلقائياً وينشرها في صفحة **Releases** بالمستودع.
 
@@ -138,7 +137,7 @@ assets/js/native.js     التكامل مع تطبيق أندرويد وبرنا
 assets/css/fonts.css    الخطوط المضمّنة (assets/fonts)
 scripts/build-web.mjs   تجهيز الواجهة داخل dist/ للتطبيقات
 android/                مشروع أندرويد (Capacitor)
-src-tauri/              برنامج سطح المكتب (Tauri)
+src-tauri/              برنامج سطح المكتب لويندوز وماك (Tauri)
 resources/              صور الأيقونة وشاشة البدء للتطبيقات
 .github/workflows/      بناء التطبيقات ونشرها تلقائياً
 tests/billing.test.js   اختبارات محرّك الحساب
